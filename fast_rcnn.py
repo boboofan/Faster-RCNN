@@ -41,16 +41,17 @@ def pairwise_iou(boxes1, boxes2):
     return tf.where(tf.equal(intersections, 0), tf.zeros_like(intersections), tf.truediv(intersections, unions))
 
 
-def pairwise_boxes_and_gt(boxes, gt_boxes_list, gt_labels_list, foreground_thresh, max_foreground_num, batch_size):
+def pairwise_boxes_and_gt(boxes, gt_boxes_list, gt_labels_list, boxes_num_per_image,
+                          foreground_thresh, foreground_ratio, batch_size):
     '''
     :param boxes: [batch_size, N, 4]
     :param gt_boxes_list: list[[None, 4]] len(list) = batch_size
     :param gt_labels_list: list[[None]] len(list) = batch_size
     :return:
     '''
+    sampled_boxes_list, sampled_labels_list, gt_pair_foreground_index_list = [], [], []
 
     boxes_list = tf.split(boxes, batch_size, axis=0)
-
     for i in range(batch_size):
         boxes = boxes_list[i]  # [N, 4]
         gt_boxes, gt_labels = gt_boxes_list[i], gt_labels_list[i]  # [M, 4], [M]
@@ -63,44 +64,23 @@ def pairwise_boxes_and_gt(boxes, gt_boxes_list, gt_labels_list, foreground_thres
 
         foreground_mask = tf.reduce_max(iou, axis=-1) > foreground_thresh
         foreground_index = tf.reshape(tf.where(foreground_mask), [-1])
-        foreground_num = tf.minimum(tf.size(foreground_index), max_foreground_num)
+        foreground_num = tf.minimum(tf.size(foreground_index), int(boxes_num_per_image * foreground_ratio))
         foreground_index = tf.random_shuffle(foreground_index)[:foreground_num]
+
+        background_mask = tf.logical_not(foreground_mask)
+        background_index = tf.reshape(tf.where(background_mask), [-1])
+        background_num = tf.minimum(boxes_num_per_image - foreground_num, tf.size(background_index))
+        background_index = tf.random_shuffle(background_index)[:background_num]
 
         gt_pair_foreground_index = tf.gather(tf.argmax(iou, axis=-1), foreground_index)
 
+        all_indices = tf.concat([foreground_index, background_index], axis=0)
+        sampled_boxes = tf.gather(boxes, all_indices)
+        sampled_labels = tf.concat(
+            [tf.gather(gt_labels, gt_pair_foreground_index), tf.zeros_like(background_index, dtype=tf.int64)], axis=0)
 
-def sample_fast_rcnn_targets(boxes, gt_boxes, gt_labels, batch_per_image, foreground_thresh, foreground_ratio):
-    '''
-    Sample some boxes from all proposals for training.
-    :param boxes: [batch_size, N, 4]
-    :param gt_boxes: [batch_size, M, 4]
-    :param gt_labels: [batch_size, M]
-    :return:
-    '''
+        sampled_boxes_list.append(tf.stop_gradient(sampled_boxes))  # [len(foreground_index) + len(background_index), 4]
+        sampled_labels_list.append(tf.stop_gradient(sampled_labels))  # [len(foreground_index) + len(background_index)]
+        gt_pair_foreground_index_list.append(tf.stop_gradient(gt_pair_foreground_index))  # [len(foreground_index)]
 
-    iou = pairwise_iou(boxes, gt_boxes)  # [batch_size, N, M] the intersection proportion between boxes and ground truth
-
-    # add ground truth as proposals as well
-    boxes = tf.concat([boxes, gt_boxes], axis=0)  # [batch_size, N+M, 4]
-    iou = tf.concat([iou, tf.eye(tf.shape(gt_boxes)[0])], axis=0)  # [batch_size, N+M, M]
-
-    # choose some foregrounds
-    foreground_mask = tf.reduce_max(iou, axis=-1) > foreground_thresh
-    foreground_index = tf.reshape(tf.where(foreground_mask), [-1])
-    foreground_num = tf.minimum(int(batch_per_image * foreground_ratio), tf.size(foreground_index))
-    foreground_index = tf.random_shuffle(foreground_index)[:foreground_num]
-
-    background_mask = tf.logical_not(foreground_mask)
-    background_index = tf.reshape(tf.where(background_mask), [-1])
-    background_num = tf.minimum(batch_per_image - foreground_num, tf.size(background_index))
-    background_index = tf.random_shuffle(background_index)[:background_num]
-
-    best_iou_index = tf.argmax(iou, axis=1)
-    foreground_index_gt = tf.gather(best_iou_index, foreground_index)
-
-    all_indices = tf.concat([foreground_index, background_index], axis=0)
-    sampled_boxes = tf.gather(boxes, all_indices)
-    sampled_labels = tf.concat(
-        [tf.gather(gt_labels, foreground_index_gt), tf.zeros_like(background_index, dtype=tf.int64)], axis=0)
-
-    return tf.stop_gradient(sampled_boxes), tf.stop_gradient(sampled_labels)
+    return sampled_boxes_list, sampled_labels_list, gt_pair_foreground_index_list  # len(list) = batch_size
