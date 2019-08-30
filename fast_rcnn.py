@@ -41,7 +41,7 @@ def pairwise_iou(boxes1, boxes2):
     return tf.where(tf.equal(intersections, 0), tf.zeros_like(intersections), tf.truediv(intersections, unions))
 
 
-def pairwise_boxes_and_gt(boxes, gt_boxes_list, gt_labels_list, boxes_num_per_image,
+def sample_proposal_boxes(boxes, gt_boxes_list, gt_labels_list, boxes_num_per_image,
                           foreground_thresh, foreground_ratio, batch_size):
     '''
     :param boxes: [batch_size, N, 4]
@@ -72,15 +72,15 @@ def pairwise_boxes_and_gt(boxes, gt_boxes_list, gt_labels_list, boxes_num_per_im
         background_num = tf.minimum(boxes_num_per_image - foreground_num, tf.size(background_index))
         background_index = tf.random_shuffle(background_index)[:background_num]
 
-        gt_pair_foreground_index = tf.gather(tf.argmax(iou, axis=-1), foreground_index)
+        gt_index_pair_foreground = tf.gather(tf.argmax(iou, axis=-1), foreground_index)
 
         all_indices = tf.concat([foreground_index, background_index], axis=0)
         sampled_boxes = tf.gather(boxes, all_indices)
         sampled_labels = tf.concat(
-            [tf.gather(gt_labels, gt_pair_foreground_index), tf.zeros_like(background_index, dtype=tf.int64)], axis=0)
+            [tf.gather(gt_labels, gt_index_pair_foreground), tf.zeros_like(background_index, dtype=tf.int64)], axis=0)
 
         sampled_boxes_list.append(tf.stop_gradient(sampled_boxes))  # [len(foreground_index) + len(background_index), 4]
         sampled_labels_list.append(tf.stop_gradient(sampled_labels))  # [len(foreground_index) + len(background_index)]
-        gt_pair_foreground_index_list.append(tf.stop_gradient(gt_pair_foreground_index))  # [len(foreground_index)]
+        gt_pair_foreground_index_list.append(tf.stop_gradient(gt_index_pair_foreground))  # [len(foreground_index)]
 
     return sampled_boxes_list, sampled_labels_list, gt_pair_foreground_index_list  # len(list) = batch_size

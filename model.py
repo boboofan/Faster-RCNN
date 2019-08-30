@@ -1,9 +1,10 @@
+import numpy as np
 import tensorflow as tf
 
 from extract_feature import extract_feature
 from region_proposal_network import rpn_head, generate_anchors, generate_rpn_proposals, rpn_losses
 from process_box import offsets_to_boxes, roi_align
-from fast_rcnn import sample_fast_rcnn_targets
+from fast_rcnn import sample_proposal_boxes
 
 
 class Faster_RCNN:
@@ -28,7 +29,9 @@ class Faster_RCNN:
         self.rpn_batch_per_image = 256
 
         # fast rcnn
-        self.foreground_threshold=0.5
+        self.boxes_num_per_image = 512
+        self.foreground_threshold = 0.5
+        self.foreground_ratio = 0.25
 
     def backbone(self, images, training):
         return extract_feature(images, training)  # [batch_size, images_height/16, images_width/16, 512]
@@ -54,8 +57,8 @@ class Faster_RCNN:
             tf.reshape(pred_offsets, [-1, feature_shape[0], feature_shape[1], self.anchors_num, 4]),
             tf.reshape(anchors, [-1, feature_shape[0], feature_shape[1], self.anchors_num, 4]))
 
-        # proposal_boxes: [batch_size, None, 4]
-        # proposal_scores: [batch_size, None]
+        # proposal_boxes: [batch_size, post_nms_topk, 4]
+        # proposal_scores: [batch_size, post_nms_topk]
         proposal_boxes, proposal_scores = generate_rpn_proposals(
             tf.reshape(pred_boxes, [-1, feature_shape[0] * feature_shape[1] * self.anchors_num, 4]),
             tf.reshape(pred_labels, [-1, feature_shape[0] * feature_shape[1] * self.anchors_num]),
@@ -73,7 +76,7 @@ class Faster_RCNN:
 
         return proposal_boxes, losses
 
-    def roi_head(self, images, feature_map, proposal_boxes, gt_boxes, gt_labels, crop_size, training):
+    def roi_head(self, images, feature_map, proposal_boxes, gt_boxes, gt_labels, crop_size, batch_size, training):
         '''
         :param images: [batch_size, image_h, image_w, image_c]
         :param feature_map: [batch_size, h, w, c]
@@ -84,3 +87,25 @@ class Faster_RCNN:
         :param training: bool
         :return:
         '''
+
+        if training:
+            proposal_boxes, proposal_labels, gt_index_pair_foreground = sample_proposal_boxes(proposal_boxes,
+                                                                                              gt_boxes,
+                                                                                              gt_labels,
+                                                                                              self.boxes_num_per_image,
+                                                                                              self.foreground_threshold,
+                                                                                              self.foreground_ratio,
+                                                                                              batch_size)
+            box_ind_list = [tf.ones_like(proposal_labels[i]) * i for i in range(batch_size)]
+            box_ind = tf.reshape(tf.concat(box_ind_list, axis=0), [-1])  # [n]
+
+            proposal_boxes = tf.concat(proposal_boxes, axis=0)  # [n, 4]
+            proposal_labels = tf.concat(proposal_labels, axis=0)  # [n]
+        else:
+            ones = tf.ones(tf.shape(proposal_boxes)[:2], dtype=tf.int32)
+            batch_index = tf.reshape(tf.constant(np.arange(batch_size), dtype=tf.int32), [-1, 1])
+            box_ind = tf.reshape(tf.multiply(ones, batch_index), [-1])
+
+            proposal_boxes, proposal_labels, gt_index_pair_foreground = tf.reshape(proposal_boxes, [-1, 4]), [], []
+
+        proposal_features = roi_align(feature_map, proposal_boxes, box_ind, crop_size)
