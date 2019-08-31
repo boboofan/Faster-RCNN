@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
-from extract_feature import extract_feature
+from extract_feature import extract_feature, res_block
 from region_proposal_network import rpn_head, generate_anchors, generate_rpn_proposals, rpn_losses
 from process_box import offsets_to_boxes, roi_align
 from fast_rcnn import sample_proposal_boxes
@@ -32,15 +32,15 @@ class Faster_RCNN:
         self.boxes_num_per_image = 512
         self.foreground_threshold = 0.5
         self.foreground_ratio = 0.25
+        self.crop_size = [14, 14]
 
     def backbone(self, images, training):
         return extract_feature(images, training)  # [batch_size, images_height/16, images_width/16, 512]
 
-    def rpn(self, feature_map, gt_boxes, gt_labels, batch_size, training):
+    def rpn(self, feature_map, gt_boxes, batch_size, training):
         '''
         :param feature_map: [batch_size, h, w, c]
         :param gt_boxes: list[[None, 4]] len(list) = batch_size
-        :param gt_labels: list[[None]] len(list) = batch_size
         :return:
         '''
         feature_shape = feature_map.get_shape.as_list()[1:3]  # h,w
@@ -76,14 +76,12 @@ class Faster_RCNN:
 
         return proposal_boxes, losses
 
-    def roi_head(self, images, feature_map, proposal_boxes, gt_boxes, gt_labels, crop_size, batch_size, training):
+    def roi_head(self, feature_map, proposal_boxes, gt_boxes, gt_labels, categories_num, batch_size, training):
         '''
-        :param images: [batch_size, image_h, image_w, image_c]
         :param feature_map: [batch_size, h, w, c]
         :param proposal_boxes: [batch_size, N, 4]
         :param gt_boxes: list[[None, 4]] len(list) = batch_size
         :param gt_labels: list[[None]] len(list) = batch_size
-        :param crop_size: int   # the size of image crops
         :param training: bool
         :return:
         '''
@@ -108,4 +106,14 @@ class Faster_RCNN:
 
             proposal_boxes, proposal_labels, gt_index_pair_foreground = tf.reshape(proposal_boxes, [-1, 4]), [], []
 
-        proposal_features = roi_align(feature_map, proposal_boxes, box_ind, crop_size)
+        # [n, crop_height, crop_width, c]
+        proposal_features = roi_align(feature_map, proposal_boxes, box_ind, self.crop_size)
+        # [n, crop_height/2, crop_width/2, c]
+        proposal_features = res_block(proposal_features, tf.shape(proposal_features)[-1], 2, training)
+        # [n, c] Global average pooling
+        proposal_features = tf.reduce_mean(proposal_features, axis=[1, 2])
+
+        cls_logits = tf.layers.dense(proposal_features, categories_num + 1,
+                                     kernel_initializer=tf.truncated_normal_initializer(stddev=0.01))
+        reg_logits = tf.layers.dense(proposal_features, categories_num + 1,
+                                     kernel_initializer=tf.truncated_normal_initializer(stddev=0.01))

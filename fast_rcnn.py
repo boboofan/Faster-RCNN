@@ -84,3 +84,4 @@ def sample_proposal_boxes(boxes, gt_boxes_list, gt_labels_list, boxes_num_per_im
         gt_pair_foreground_index_list.append(tf.stop_gradient(gt_index_pair_foreground))  # [len(foreground_index)]
 
     return sampled_boxes_list, sampled_labels_list, gt_pair_foreground_index_list  # len(list) = batch_size
+
