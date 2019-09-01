@@ -23,8 +23,8 @@ def rpn_head(feature_map, anchors_num):
     input_dim = feature_map.get_shape().as_list()[-1]
     head = conv(feature_map, input_dim, activation=tf.nn.relu)  # [batch, h, w, input_dim]
 
-    label_logits = conv(head, anchors_num * 1, 1)  # [batch, h, w, anchors_num*1]
-    box_logits = conv(head, anchors_num * 4, 1)  # [batch, h, w, anchors_num*4]
+    label_logits = conv(head, anchors_num * 1)  # [batch, h, w, anchors_num*1]
+    box_logits = conv(head, anchors_num * 4)  # [batch, h, w, anchors_num*4]
 
     return label_logits, box_logits
 
