@@ -113,7 +113,12 @@ class Faster_RCNN:
         # [n, c] Global average pooling
         proposal_features = tf.reduce_mean(proposal_features, axis=[1, 2])
 
+        # [n, categories_num + 1]
         cls_logits = tf.layers.dense(proposal_features, categories_num + 1,
                                      kernel_initializer=tf.truncated_normal_initializer(stddev=0.01))
-        reg_logits = tf.layers.dense(proposal_features, categories_num + 1,
+
+        # [n, categories_num + 1, 4]
+        reg_logits = tf.layers.dense(proposal_features, (categories_num + 1) * 4,
                                      kernel_initializer=tf.truncated_normal_initializer(stddev=0.01))
+        reg_logits = tf.reshape(reg_logits, [-1, categories_num + 1, 4])
+

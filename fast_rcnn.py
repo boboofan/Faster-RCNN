@@ -47,7 +47,6 @@ def sample_proposal_boxes(boxes, gt_boxes_list, gt_labels_list, boxes_num_per_im
     :param boxes: [batch_size, N, 4]
     :param gt_boxes_list: list[[None, 4]] len(list) = batch_size
     :param gt_labels_list: list[[None]] len(list) = batch_size
-    :return:
     '''
     sampled_boxes_list, sampled_labels_list, gt_pair_foreground_index_list = [], [], []
 
@@ -79,9 +78,9 @@ def sample_proposal_boxes(boxes, gt_boxes_list, gt_labels_list, boxes_num_per_im
         sampled_labels = tf.concat(
             [tf.gather(gt_labels, gt_index_pair_foreground), tf.zeros_like(background_index, dtype=tf.int64)], axis=0)
 
-        sampled_boxes_list.append(tf.stop_gradient(sampled_boxes))  # [len(foreground_index) + len(background_index), 4]
-        sampled_labels_list.append(tf.stop_gradient(sampled_labels))  # [len(foreground_index) + len(background_index)]
-        gt_pair_foreground_index_list.append(tf.stop_gradient(gt_index_pair_foreground))  # [len(foreground_index)]
+        sampled_boxes_list.append(tf.stop_gradient(sampled_boxes))  # list([len(foreground_index) + len(background_index), 4])
+        sampled_labels_list.append(tf.stop_gradient(sampled_labels))  # list([len(foreground_index) + len(background_index)])
+        gt_pair_foreground_index_list.append(tf.stop_gradient(gt_index_pair_foreground))  # list([len(foreground_index)])
 
     return sampled_boxes_list, sampled_labels_list, gt_pair_foreground_index_list  # len(list) = batch_size
 
